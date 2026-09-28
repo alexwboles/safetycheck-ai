@@ -1,4 +1,6 @@
-/* SafetyCheck app — UI glue. Browser only. */
+/* SafetyCheck app — UI glue. Browser only.
+ * Visual identity: jobsite inspection board. All markup is generated here;
+ * element IDs below are the contract the CSS and tests rely on. */
 (function () {
   "use strict";
   var SC = window.SafetyCheck;
@@ -40,44 +42,72 @@
     var opts = SC.listTrades().map(function (t) {
       return '<option value="' + t.id + '"' + (t.id === state.trade ? " selected" : "") + ">" + esc(t.name) + "</option>";
     }).join("");
-    return '<header class="topbar"><div class="brand">SafetyCheck AI</div>' +
-      '<label class="tradesel">Trade <select id="tradeSel">' + opts + "</select></label></header>";
+    return '<header class="mast"><div class="mast-top">' +
+      '<div class="brand"><span class="brand-mark" aria-hidden="true"></span>' +
+      '<div class="brand-text"><strong>SafetyCheck <em>AI</em></strong>' +
+      '<span class="brand-sub">Jobsite safety board</span></div></div>' +
+      '<label class="tradesel"><span>Trade</span><select id="tradeSel">' + opts + "</select></label>" +
+      '</div><div class="hazard" aria-hidden="true"></div></header>';
   }
 
   function renderTabs() {
-    var tabs = [["check", "Checklists"], ["talk", "Toolbox Talk"], ["inc", "Incidents"], ["ppe", "PPE"]];
-    return '<nav class="tabs">' + tabs.map(function (tb) {
-      return '<button class="tab' + (state.tab === tb[0] ? " active" : "") + '" data-tab="' + tb[0] + '">' + tb[1] + "</button>";
+    var tabs = [
+      ["check", "01", "Checklists"],
+      ["talk", "02", "Toolbox Talk"],
+      ["inc", "03", "Incidents"],
+      ["ppe", "04", "PPE"]
+    ];
+    return '<nav class="tabs" aria-label="Sections">' + tabs.map(function (tb) {
+      return '<button class="tab' + (state.tab === tb[0] ? " active" : "") + '" data-tab="' + tb[0] + '">' +
+        '<span class="tab-n">' + tb[1] + "</span>" + tb[2] + "</button>";
     }).join("") + "</nav>";
   }
 
-  function checklistHTML(kind, title) {
+  function progressHTML(prog) {
+    return '<div class="progress"><div class="bar" style="width:' + prog.pct + '%"></div>' +
+      '<span>' + prog.done + "/" + prog.total + " · " + prog.pct + "%</span></div>";
+  }
+
+  function checkRows(items, st, kind) {
+    return items.map(function (item, i) {
+      var id = "i-" + i, done = !!st[id];
+      return '<label class="checkrow' + (done ? " done" : "") + '">' +
+        '<input type="checkbox" data-kind="' + kind + '" data-id="' + id + '"' + (done ? " checked" : "") + ">" +
+        '<span class="box" aria-hidden="true"></span>' +
+        '<span class="lbl">' + esc(item) + "</span></label>";
+    }).join("");
+  }
+
+  function checklistHTML(kind, title, kicker) {
     var t = trade();
     var items = t[kind];
     var st = getCheckState(kind, items);
     var prog = SC.checklistProgress(items, st);
-    var rows = items.map(function (item, i) {
-      var id = "i-" + i, done = !!st[id];
-      return '<label class="checkrow' + (done ? " done" : "") + '"><input type="checkbox" data-kind="' + kind + '" data-id="' + id + '"' + (done ? " checked" : "") + "><span>" + esc(item) + "</span></label>";
-    }).join("");
-    return '<section class="card"><h2>' + title + '</h2>' +
-      '<div class="progress"><div class="bar" style="width:' + prog.pct + '%"></div><span>' + prog.done + "/" + prog.total + " · " + prog.pct + "%</span></div>" +
-      rows +
-      (prog.pct === 100 ? '<p class="complete">Checklist complete — nice work staying safe.</p>' : "") +
+    return '<section class="card inspect">' +
+      '<div class="card-top"><div><p class="kicker">' + kicker + '</p><h2>' + title + "</h2></div>" +
+      '<div class="pct-big">' + prog.pct + '<span>%</span></div></div>' +
+      progressHTML(prog) +
+      '<div class="checks">' + checkRows(items, st, kind) + "</div>" +
+      (prog.pct === 100
+        ? '<p class="complete"><span class="complete-badge" aria-hidden="true">✓</span>Checklist complete — nice work staying safe.</p>'
+        : "") +
       "</section>";
   }
 
   function renderCheck() {
-    return checklistHTML("daily", "Daily Safety Checklist") + checklistHTML("weekly", "Weekly Safety Checklist");
+    return checklistHTML("daily", "Daily Safety Checklist", "Inspection · resets each morning") +
+      checklistHTML("weekly", "Weekly Safety Checklist", "Inspection · resets each ISO week");
   }
 
   function renderTalk() {
     var tk = state.talk;
     var pts = tk.points.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("");
-    var weekLabel = tk.week ? "Week " + tk.week + " topic" : "Bonus topic";
-    return '<section class="card"><h2>Toolbox Talk</h2>' +
-      '<p class="muted">' + weekLabel + ' — ' + esc(tk.title) + "</p>" +
-      '<h3 class="talktitle">' + esc(tk.title) + "</h3><ol class='talkpts'>" + pts + "</ol>" +
+    var weekLabel = tk.week ? "Week " + tk.week : "Bonus topic";
+    return '<section class="card briefing">' +
+      '<div class="brief-head"><span class="week-badge">' + esc(weekLabel) + '</span>' +
+      '<div><p class="kicker">Toolbox talk · 5-minute crew huddle</p>' +
+      '<h2 class="talktitle">' + esc(tk.title) + "</h2></div></div>" +
+      "<ol class='talkpts'>" + pts + "</ol>" +
       '<div class="row"><button id="newTalk" class="btn">Pick another topic</button>' +
       '<button id="weekTalk" class="btn ghost">Back to this week\'s topic</button></div>' +
       '<p class="muted small">52 rotating topics — one per week, with talking points for a 5-minute crew huddle.</p></section>';
@@ -88,11 +118,13 @@
     var stats = SC.incidentStats(log);
     var typeOpts = SC.INCIDENT_TYPES.map(function (t) { return '<option>' + esc(t) + "</option>"; }).join("");
     var rows = log.slice().reverse().map(function (r) {
-      return "<tr><td>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + esc(r.notes) + "</td></tr>";
+      return "<tr><td class='d'>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + esc(r.notes) + "</td></tr>";
     }).join("");
-    return '<section class="card"><h2>Incident Log</h2>' +
-      '<div class="statgrid"><div class="stat"><b>' + stats.total + '</b><span>total logged</span></div>' +
-      '<div class="stat"><b>' + (stats.bySeverity.High || 0) + '</b><span>high severity</span></div>' +
+    return '<section class="card">' +
+      '<div class="card-top"><div><p class="kicker">Issue reporting</p><h2>Incident Log</h2></div></div>' +
+      '<div class="statgrid">' +
+      '<div class="stat"><b>' + stats.total + '</b><span>total logged</span></div>' +
+      '<div class="stat warn"><b>' + (stats.bySeverity.High || 0) + '</b><span>high severity</span></div>' +
       '<div class="stat"><b>' + (stats.byType["Near miss"] || 0) + '</b><span>near misses</span></div></div>' +
       '<form id="incForm" class="incform">' +
       '<label>Date <input type="date" id="incDate" value="' + todayStr() + '" required></label>' +
@@ -100,10 +132,10 @@
       '<label>Severity <select id="incSev"><option>Low</option><option>Medium</option><option>High</option></select></label>' +
       '<label class="full">Notes <input type="text" id="incNotes" placeholder="What happened? Where? Who was involved?" required></label>' +
       '<button class="btn full" type="submit">Log incident</button></form>' +
-      '<div id="incErr" class="err"></div>' +
+      '<div id="incErr" class="err" role="alert"></div>' +
       (log.length ? '<div class="row"><button id="expCsv" class="btn ghost">Export CSV</button></div>' +
         '<div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th>Severity</th><th>Notes</th></tr></thead><tbody>' + rows + "</tbody></table></div>"
-        : '<p class="muted">No incidents logged yet. Log near misses too — they\'re free lessons.</p>') +
+        : '<div class="emptybox"><p><strong>No incidents logged yet.</strong></p><p class="muted small">Log near misses too — they\'re free lessons.</p></div>') +
       "</section>";
   }
 
@@ -111,13 +143,11 @@
     var t = trade();
     var st = SC.storageGet("ppe:" + state.trade, SC.newChecklistState(t.ppe));
     var prog = SC.checklistProgress(t.ppe, st);
-    var rows = t.ppe.map(function (item, i) {
-      var id = "i-" + i, done = !!st[id];
-      return '<label class="checkrow' + (done ? " done" : "") + '"><input type="checkbox" data-kind="ppe" data-id="' + id + '"' + (done ? " checked" : "") + "><span>" + esc(item) + "</span></label>";
-    }).join("");
-    return '<section class="card"><h2>PPE Checklist — ' + esc(t.name) + "</h2>" +
-      '<div class="progress"><div class="bar" style="width:' + prog.pct + '%"></div><span>' + prog.done + "/" + prog.total + " · " + prog.pct + "%</span></div>" +
-      rows +
+    return '<section class="card inspect">' +
+      '<div class="card-top"><div><p class="kicker">Gear up · before every shift</p><h2>PPE Checklist — ' + esc(t.name) + "</h2></div>" +
+      '<div class="pct-big">' + prog.pct + '<span>%</span></div></div>' +
+      progressHTML(prog) +
+      '<div class="checks">' + checkRows(t.ppe, st, "ppe") + "</div>" +
       '<p class="muted small">Tick off each item as you gear up. PPE is your last line of defense — inspect it before every shift.</p></section>';
   }
 
