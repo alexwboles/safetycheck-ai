@@ -81,6 +81,36 @@ const csv = SC.exportIncidentsCSV(r.log);
 SC.storageSet('tkey', { a: 1 });
 JSON.stringify(SC.storageGet('tkey', null)) === '{"a":1}' ? ok('storage round-trip works') : bad('storage broken');
 
+// deleteIncident removes only the matching record
+const r2 = SC.addIncident(r.log, { date: '2026-09-29', type: 'Recordable injury', severity: 'Medium', notes: 'Cut finger' });
+const after = SC.deleteIncident(r2.log, r.incident.id);
+(after.length === 1 && after[0].id === r2.incident.id) ? ok('deleteIncident removes the right record') : bad('deleteIncident wrong: ' + JSON.stringify(after.map(x => x.id)));
+SC.deleteIncident(r2.log, 'no-such-id').length === 2 ? ok('deleteIncident with unknown id is a no-op') : bad('deleteIncident mutated on unknown id');
+
+// filterIncidents: text + type + severity
+const log3 = [
+  { id: 'a', date: '2026-09-28', type: 'Near miss', severity: 'High', notes: 'Ladder slipped' },
+  { id: 'b', date: '2026-09-29', type: 'Recordable injury', severity: 'Medium', notes: 'Cut finger on panel' },
+  { id: 'c', date: '2026-09-30', type: 'Near miss', severity: 'Low', notes: 'Extension cord tripped' },
+];
+SC.filterIncidents(log3, { q: 'ladder' }).length === 1 ? ok('filterIncidents text search') : bad('filterIncidents q');
+SC.filterIncidents(log3, { type: 'Near miss' }).length === 2 ? ok('filterIncidents type filter') : bad('filterIncidents type');
+SC.filterIncidents(log3, { severity: 'Medium' }).length === 1 ? ok('filterIncidents severity filter') : bad('filterIncidents severity');
+SC.filterIncidents(log3, { q: 'cord', severity: 'Low', type: 'Near miss' }).length === 1 ? ok('filterIncidents combined filters') : bad('filterIncidents combined');
+SC.filterIncidents(log3, { q: 'zzzz' }).length === 0 ? ok('filterIncidents empty result set') : bad('filterIncidents no-match');
+
+// daysSinceLastIncident
+SC.daysSinceLastIncident(log3, '2026-10-07') === 7 ? ok('daysSinceLastIncident = 7') : bad('daysSinceLastIncident: ' + SC.daysSinceLastIncident(log3, '2026-10-07'));
+SC.daysSinceLastIncident([], '2026-10-07') === null ? ok('daysSinceLastIncident null on empty log') : bad('daysSinceLastIncident not null');
+
+// incidentsByWeek: buckets count correctly, oldest first
+const weeks = SC.incidentsByWeek(log3, 8, '2026-10-07');
+(weeks.length === 8 && weeks.every(w => /^\d{4}-\d{2}-\d{2}$/.test(w.start) && /^\d{4}-\d{2}-\d{2}$/.test(w.end)))
+  ? ok('incidentsByWeek returns 8 labeled buckets') : bad('incidentsByWeek shape');
+const total = weeks.reduce((s, w) => s + w.count, 0);
+total === 3 ? ok('incidentsByWeek counts all 3 incidents') : bad('incidentsByWeek lost incidents: ' + total);
+(new Date(weeks[0].start) <= new Date(weeks[7].start)) ? ok('incidentsByWeek oldest-first') : bad('incidentsByWeek order');
+
 console.log('NODE_PASS=' + pass + ' NODE_FAIL=' + fail);
 process.exit(fail ? 1 : 0);
 NODEEOF

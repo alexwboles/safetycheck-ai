@@ -67,6 +67,32 @@ s2 = SC.toggleChecklist(s2, 'i-0');
 s2 = SC.toggleChecklist(s2, 'i-0');
 SC.checklistProgress(['x'], s2).pct === 0 ? ok('flow7: double-toggle returns to 0%') : bad('flow7: toggle not idempotent');
 
+// Flow 8: incident search/filter narrows the log (uses flow4's 3-incident log)
+SC.filterIncidents(log, { q: 'cord' }).length === 1 ? ok('flow8: search "cord" finds 1 incident') : bad('flow8: search miss');
+SC.filterIncidents(log, { severity: 'High' }).length === 1 ? ok('flow8: High-severity filter finds 1') : bad('flow8: severity filter miss');
+SC.filterIncidents(log, { type: 'Near miss' }).length === 1 ? ok('flow8: type filter finds the near miss') : bad('flow8: type filter miss');
+SC.filterIncidents(log, {}).length === 3 ? ok('flow8: empty filters show everything') : bad('flow8: empty filters dropped rows');
+
+// Flow 9: delete an incident -> stats + trend update
+const delId = log[0].id;
+const logAfter = SC.deleteIncident(log, delId);
+const st9 = SC.incidentStats(logAfter);
+(logAfter.length === 2 && st9.total === 2 && !logAfter.some(r => r.id === delId))
+  ? ok('flow9: deleting an incident shrinks the log and stats') : bad('flow9: delete broken');
+
+// Flow 10: days-since + weekly trend on the flow4 log (ref 2026-10-07)
+SC.daysSinceLastIncident(log, '2026-10-07') === 10 ? ok('flow10: 10 days since the 2026-09-27 incident') : bad('flow10: days off: ' + SC.daysSinceLastIncident(log, '2026-10-07'));
+const w10 = SC.incidentsByWeek(log, 8, '2026-10-07');
+const tot10 = w10.reduce((s, w) => s + w.count, 0);
+(tot10 === 3 && w10.length === 8) ? ok('flow10: 8-week trend holds all 3 incidents') : bad('flow10: trend off: ' + tot10);
+
+// Flow 11: manual reset returns a half-done checklist to 0% (simulates UI reset)
+let half = SC.newChecklistState(trade.daily);
+trade.daily.forEach((_, i) => { if (i % 2 === 0) half = SC.toggleChecklist(half, 'i-' + i); });
+SC.checklistProgress(trade.daily, half).pct > 0 ? ok('flow11: half-done checklist above 0%') : bad('flow11: setup failed');
+const reset = SC.newChecklistState(trade.daily);
+SC.checklistProgress(trade.daily, reset).pct === 0 ? ok('flow11: reset returns checklist to 0%') : bad('flow11: reset failed');
+
 console.log('---');
 console.log('e2e: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

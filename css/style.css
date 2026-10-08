@@ -237,6 +237,41 @@ td.d { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink
 }
 .emptybox p { margin: .2rem 0; }
 
+/* ---------- new: checklist tools, incident filters, trend, print ---------- */
+.card-actions { display: flex; align-items: center; gap: .7rem; }
+.btn.tiny { padding: .35rem .7rem; font-size: .8rem; }
+.checktools { align-items: center; margin: 0 0 1rem; }
+.statgrid { grid-template-columns: repeat(4, 1fr); }
+.stat.ok { border-top-color: var(--green); }
+.stat.ok b { color: var(--green); }
+.incfilters {
+  display: grid; grid-template-columns: 1fr 180px 170px auto; gap: .6rem;
+  margin: .9rem 0 .2rem;
+}
+.incfilters input, .incfilters select {
+  padding: .55rem .65rem; border: 1px solid var(--line); border-radius: 0;
+  font-size: .9rem; font-family: inherit; background: #fff; color: var(--ink);
+}
+.incfilters input:focus, .incfilters select:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(234, 88, 12, .15);
+}
+.rowdel { text-align: right; white-space: nowrap; }
+.trend { margin: .4rem 0 1.1rem; }
+.weekbars { display: flex; gap: .5rem; align-items: flex-end; margin-top: .5rem; }
+.wbar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+.wbar span { font-size: .7rem; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.wbar i { display: block; width: 100%; background: var(--accent); min-height: 2px; }
+
+@media print {
+  .mast, .tabs, .foot, .row, .checktools, .btn, button, .incform, #incErr,
+  .incfilters, .statgrid, .trend, .emptybox { display: none !important; }
+  body { background: #fff; }
+  main { max-width: 100%; padding: 0; margin: 0; }
+  .card { box-shadow: none; border: none; padding: 0; margin: 0 0 1.5rem; break-inside: avoid; }
+  .card-actions .tiny { display: none; }
+  .checkrow .box { border-color: #000; }
+}
+
 .foot { text-align: center; color: var(--muted); font-size: .82rem; padding: 0 1rem; max-width: 960px; margin: 0 auto; }
 
 @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } }
@@ -249,6 +284,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 @media (max-width: 600px) {
   .incform { grid-template-columns: 1fr; }
+  .incfilters { grid-template-columns: 1fr; }
   .tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: .5rem; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { white-space: nowrap; }

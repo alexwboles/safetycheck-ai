@@ -13,7 +13,9 @@ SafetyCheck AI is a single-page web app (no build step, no dependencies, no acco
 1. **Trade-specific checklists** — 8 trades (Construction, Electrical, Plumbing, HVAC, Roofing, Welding, Warehouse, Landscaping), each with a 6-item daily checklist and a 5-item weekly checklist. Daily resets each morning; weekly resets each ISO week. Progress bars track completion.
 2. **PPE checklist per trade** — 6 trade-specific PPE items to tick off while gearing up.
 3. **Toolbox-talk generator** — 52 rotating weekly topics (ladder safety, LOTO, heat stress, silica dust, stop-work authority…), each with three 5-minute talking points. One topic per week, plus a "pick another" shuffle.
-4. **Incident log** — date/type/severity/notes with validation, running stats (totals, high-severity, near misses), and one-click CSV export.
+4. **Incident log** — date/type/severity/notes with validation, running stats (totals, high-severity, near misses, days since last incident), an 8-week incident trend, search + type/severity filters, one-click CSV export, and delete for mis-logged entries
+
+Checklists add **Print checklists** (a clean printout for the crew's morning huddle) and a **Reset** button on daily, weekly, and PPE lists so you can re-run an inspection anytime.
 
 Everything persists in `localStorage`. Optional: set `OPENAI_API_KEY` for AI-drafted toolbox talks in a future version — nothing requires it.
 

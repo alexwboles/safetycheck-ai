@@ -21,7 +21,8 @@
     tab: "check",
     dailyKey: "daily:" + todayStr(),
     weeklyKey: "weekly:" + SC.isoWeekNumber(new Date()),
-    talk: null
+    talk: null,
+    incFilter: { q: "", type: "", severity: "" }
   };
   if (!SC.tradeById(state.trade)) state.trade = "construction";
   state.talk = SC.currentTalk();
@@ -85,7 +86,8 @@
     var prog = SC.checklistProgress(items, st);
     return '<section class="card inspect">' +
       '<div class="card-top"><div><p class="kicker">' + kicker + '</p><h2>' + title + "</h2></div>" +
-      '<div class="pct-big">' + prog.pct + '<span>%</span></div></div>' +
+      '<div class="card-actions"><div class="pct-big">' + prog.pct + '<span>%</span></div>' +
+      '<button class="btn ghost tiny" data-reset-check="' + kind + '">Reset</button></div></div>' +
       progressHTML(prog) +
       '<div class="checks">' + checkRows(items, st, kind) + "</div>" +
       (prog.pct === 100
@@ -95,7 +97,9 @@
   }
 
   function renderCheck() {
-    return checklistHTML("daily", "Daily Safety Checklist", "Inspection · resets each morning") +
+    return '<div class="row checktools"><button id="printCheck" class="btn ghost">Print checklists</button>' +
+      '<span class="muted small">Hand the printout to the crew for the morning huddle.</span></div>' +
+      checklistHTML("daily", "Daily Safety Checklist", "Inspection · resets each morning") +
       checklistHTML("weekly", "Weekly Safety Checklist", "Inspection · resets each ISO week");
   }
 
@@ -113,19 +117,44 @@
       '<p class="muted small">52 rotating topics — one per week, with talking points for a 5-minute crew huddle.</p></section>';
   }
 
+  function trendBars(log) {
+    var weeks = SC.incidentsByWeek(log, 8);
+    var max = 1;
+    weeks.forEach(function (w) { if (w.count > max) max = w.count; });
+    var bars = weeks.map(function (w) {
+      var h = Math.max(2, Math.round(w.count / max * 44));
+      return '<div class="wbar" title="' + esc(w.start) + ' – ' + esc(w.end) + ': ' + w.count + '">' +
+        '<span>' + w.count + '</span><i style="height:' + h + 'px"></i></div>';
+    }).join("");
+    return '<div class="trend"><p class="kicker">Incidents per week · last 8 weeks</p>' +
+      '<div class="weekbars">' + bars + "</div></div>";
+  }
+
   function renderIncidents() {
     var log = SC.storageGet("incidents", []);
     var stats = SC.incidentStats(log);
+    var days = SC.daysSinceLastIncident(log);
     var typeOpts = SC.INCIDENT_TYPES.map(function (t) { return '<option>' + esc(t) + "</option>"; }).join("");
-    var rows = log.slice().reverse().map(function (r) {
-      return "<tr><td class='d'>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + esc(r.notes) + "</td></tr>";
+    var f = state.incFilter;
+    var fTypeOpts = '<option value="">All types</option>' + SC.INCIDENT_TYPES.map(function (t) {
+      return '<option' + (f.type === t ? " selected" : "") + ">" + esc(t) + "</option>";
+    }).join("");
+    var fSevOpts = '<option value="">All severities</option>' + ["Low", "Medium", "High"].map(function (s) {
+      return '<option' + (f.severity === s ? " selected" : "") + ">" + s + "</option>";
+    }).join("");
+    var filtered = SC.filterIncidents(log, f).slice().reverse();
+    var rows = filtered.map(function (r) {
+      return "<tr><td class='d'>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + esc(r.notes) + "</td>" +
+        "<td class='rowdel'><button class='btn ghost tiny' data-del-inc='" + esc(r.id) + "' aria-label='Delete incident'>Delete</button></td></tr>";
     }).join("");
     return '<section class="card">' +
       '<div class="card-top"><div><p class="kicker">Issue reporting</p><h2>Incident Log</h2></div></div>' +
       '<div class="statgrid">' +
       '<div class="stat"><b>' + stats.total + '</b><span>total logged</span></div>' +
       '<div class="stat warn"><b>' + (stats.bySeverity.High || 0) + '</b><span>high severity</span></div>' +
-      '<div class="stat"><b>' + (stats.byType["Near miss"] || 0) + '</b><span>near misses</span></div></div>' +
+      '<div class="stat"><b>' + (stats.byType["Near miss"] || 0) + '</b><span>near misses</span></div>' +
+      '<div class="stat ok"><b>' + (days === null ? "—" : days) + '</b><span>days since last incident</span></div></div>' +
+      trendBars(log) +
       '<form id="incForm" class="incform">' +
       '<label>Date <input type="date" id="incDate" value="' + todayStr() + '" required></label>' +
       '<label>Type <select id="incType">' + typeOpts + "</select></label>" +
@@ -134,7 +163,14 @@
       '<button class="btn full" type="submit">Log incident</button></form>' +
       '<div id="incErr" class="err" role="alert"></div>' +
       (log.length ? '<div class="row"><button id="expCsv" class="btn ghost">Export CSV</button></div>' +
-        '<div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th>Severity</th><th>Notes</th></tr></thead><tbody>' + rows + "</tbody></table></div>"
+        '<div class="incfilters">' +
+        '<input type="search" id="incQ" placeholder="Search notes, types…" value="' + esc(f.q) + '" aria-label="Search incidents">' +
+        '<select id="incTypeF" aria-label="Filter by type">' + fTypeOpts + "</select>" +
+        '<select id="incSevF" aria-label="Filter by severity">' + fSevOpts + "</select>" +
+        '<button id="incClearF" class="btn ghost tiny">Clear</button></div>' +
+        (filtered.length
+          ? '<div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th>Severity</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div>"
+          : '<div class="emptybox"><p class="muted small">No incidents match your filters.</p></div>')
         : '<div class="emptybox"><p><strong>No incidents logged yet.</strong></p><p class="muted small">Log near misses too — they\'re free lessons.</p></div>') +
       "</section>";
   }
@@ -145,7 +181,8 @@
     var prog = SC.checklistProgress(t.ppe, st);
     return '<section class="card inspect">' +
       '<div class="card-top"><div><p class="kicker">Gear up · before every shift</p><h2>PPE Checklist — ' + esc(t.name) + "</h2></div>" +
-      '<div class="pct-big">' + prog.pct + '<span>%</span></div></div>' +
+      '<div class="card-actions"><div class="pct-big">' + prog.pct + '<span>%</span></div>' +
+      '<button class="btn ghost tiny" data-reset-check="ppe">Reset</button></div></div>' +
       progressHTML(prog) +
       '<div class="checks">' + checkRows(t.ppe, st, "ppe") + "</div>" +
       '<p class="muted small">Tick off each item as you gear up. PPE is your last line of defense — inspect it before every shift.</p></section>';
@@ -187,6 +224,18 @@
     if (nt) nt.addEventListener("click", function () { state.talk = SC.randomTalk(state.talk.index); render(); });
     var wt = document.getElementById("weekTalk");
     if (wt) wt.addEventListener("click", function () { state.talk = SC.currentTalk(); render(); });
+    // manual checklist resets (re-do an inspection after an incident, etc.)
+    Array.prototype.forEach.call(document.querySelectorAll("[data-reset-check]"), function (b) {
+      b.addEventListener("click", function () {
+        var kind = b.getAttribute("data-reset-check");
+        if (!confirm("Reset this checklist? All ticks will be cleared.")) return;
+        var key = kind === "ppe" ? "ppe:" + state.trade : checkKey(kind);
+        SC.storageSet(key, SC.newChecklistState(trade()[kind]));
+        render();
+      });
+    });
+    var pc = document.getElementById("printCheck");
+    if (pc) pc.addEventListener("click", function () { window.print(); });
     var form = document.getElementById("incForm");
     if (form) form.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -210,6 +259,34 @@
       a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
     });
+    // incident log search + filters
+    function rebindIncFilter() {
+      var q = document.getElementById("incQ"), tf = document.getElementById("incTypeF"),
+          sf = document.getElementById("incSevF");
+      if (q) q.addEventListener("input", function () { state.incFilter.q = q.value; render(); refocusInc("incQ"); });
+      if (tf) tf.addEventListener("change", function () { state.incFilter.type = tf.value; render(); });
+      if (sf) sf.addEventListener("change", function () { state.incFilter.severity = sf.value; render(); });
+      var cf = document.getElementById("incClearF");
+      if (cf) cf.addEventListener("click", function () {
+        state.incFilter = { q: "", type: "", severity: "" }; render();
+      });
+    }
+    rebindIncFilter();
+    // delete incident rows
+    Array.prototype.forEach.call(document.querySelectorAll("[data-del-inc]"), function (b) {
+      b.addEventListener("click", function () {
+        if (!confirm("Delete this incident record?")) return;
+        SC.storageSet("incidents", SC.deleteIncident(SC.storageGet("incidents", []),
+          b.getAttribute("data-del-inc")));
+        render();
+      });
+    });
+  }
+
+  // keep the search box focused + caret at end after a re-render on typing
+  function refocusInc(id) {
+    var elx = document.getElementById(id);
+    if (elx) { elx.focus(); var v = elx.value; elx.value = ""; elx.value = v; }
   }
 
   document.addEventListener("DOMContentLoaded", render);

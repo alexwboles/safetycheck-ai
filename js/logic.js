@@ -113,6 +113,69 @@
     return lines.join("\n");
   }
 
+  function deleteIncident(log, id) {
+    return (log || []).filter(function (r) { return r.id !== id; });
+  }
+
+  // filterIncidents(log, { q, type, severity }) — search box + dropdown filters
+  // for the incident table. Pure; UI calls it before rendering rows.
+  function filterIncidents(log, opts) {
+    opts = opts || {};
+    var q = String(opts.q || "").trim().toLowerCase();
+    return (log || []).filter(function (r) {
+      if (opts.type && r.type !== opts.type) return false;
+      if (opts.severity && r.severity !== opts.severity) return false;
+      if (q) {
+        var hay = (r.date + " " + r.type + " " + r.severity + " " + r.notes).toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  function dateToStr(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
+  }
+
+  // daysSinceLastIncident(log, refDate?) -> int days, or null when log is empty.
+  function daysSinceLastIncident(log, refDate) {
+    var last = null;
+    (log || []).forEach(function (r) {
+      if (validDateStr(r.date) && (last === null || r.date > last)) last = r.date;
+    });
+    if (!last) return null;
+    var ref = refDate || dateToStr(new Date());
+    var ms = new Date(ref + "T12:00:00") - new Date(last + "T12:00:00");
+    return Math.max(0, Math.round(ms / 86400000));
+  }
+
+  // incidentsByWeek(log, weeks?, refDate?) -> [{ start, end, count }] oldest-first,
+  // bucketing each incident into its calendar week (Mon–Sun).
+  function incidentsByWeek(log, weeks, refDate) {
+    weeks = weeks || 8;
+    var ref = refDate ? new Date(refDate + "T12:00:00") : new Date();
+    var monday = new Date(ref);
+    monday.setHours(0, 0, 0, 0);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    var buckets = [];
+    for (var i = 0; i < weeks; i++) {
+      var s = new Date(monday); s.setDate(monday.getDate() - 7 * i);
+      var e = new Date(s); e.setDate(s.getDate() + 6);
+      buckets.push({ start: dateToStr(s), end: dateToStr(e), count: 0 });
+    }
+    (log || []).forEach(function (r) {
+      if (!validDateStr(r.date)) return;
+      var d = new Date(r.date + "T12:00:00");
+      for (var j = 0; j < buckets.length; j++) {
+        var bs = new Date(buckets[j].start + "T00:00:00");
+        var be = new Date(buckets[j].end + "T23:59:59");
+        if (d >= bs && d <= be) { buckets[j].count++; break; }
+      }
+    });
+    return buckets.reverse();
+  }
+
   // ---- storage (localStorage in browser, memory in node/tests) ----
   var _mem = {};
   function storageGet(key, fallback) {
@@ -144,6 +207,8 @@
     validDateStr: validDateStr, validateIncident: validateIncident,
     addIncident: addIncident, incidentStats: incidentStats,
     exportIncidentsCSV: exportIncidentsCSV,
+    deleteIncident: deleteIncident, filterIncidents: filterIncidents,
+    daysSinceLastIncident: daysSinceLastIncident, incidentsByWeek: incidentsByWeek,
     storageGet: storageGet, storageSet: storageSet
   };
 });
