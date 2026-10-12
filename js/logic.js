@@ -176,6 +176,118 @@
     return buckets.reverse();
   }
 
+  // ---- custom checklist items ----
+  // Custom items are stored per trade+kind as [{ id, text }]; they render after
+  // the built-ins with stable ids ("c-…") so deleting one never shifts state keys.
+  // checklistItemsFor(builtIns, custom) -> [{ id, label, custom }]
+  function checklistItemsFor(builtIns, custom) {
+    var out = (builtIns || []).map(function (label, i) {
+      return { id: "i-" + i, label: label, custom: false };
+    });
+    (custom || []).forEach(function (c) {
+      out.push({ id: c.id || ("c-" + out.length), label: c.text, custom: true });
+    });
+    return out;
+  }
+
+  var _nextCustomId = 1;
+  function addCustomItem(list, text) {
+    text = String(text || "").trim();
+    if (!text) return { ok: false, error: "Item text is required." };
+    if (text.length > 140) return { ok: false, error: "Item text must be 140 characters or less." };
+    var items = (list || []).slice();
+    var dup = items.some(function (c) {
+      return String(c.text || "").trim().toLowerCase() === text.toLowerCase();
+    });
+    if (dup) return { ok: false, error: "That custom item already exists." };
+    items.push({ id: "c-" + Date.now().toString(36) + "-" + (_nextCustomId++), text: text });
+    return { ok: true, items: items };
+  }
+
+  function removeCustomItem(list, id) {
+    return (list || []).filter(function (c) { return c.id !== id; });
+  }
+
+  // checklistProgressIds(itemsWithIds, state) — progress over explicit ids
+  // (built-in "i-N" plus custom "c-…"). Backwards compatible: missing keys count as unchecked.
+  function checklistProgressIds(items, state) {
+    var total = (items || []).length, done = 0;
+    (items || []).forEach(function (it) { if (state && state[it.id]) done++; });
+    return { done: done, total: total, pct: total ? Math.round(done / total * 100) : 0 };
+  }
+
+  // ---- corrective actions ----
+  // Actions: { id, incidentId, text, owner, dueDate, done, createdAt }.
+  var _nextActionId = 1;
+  function addAction(actions, a) {
+    a = a || {};
+    var errs = [];
+    var text = String(a.text || "").trim();
+    if (!text) errs.push("action text is required");
+    if (a.dueDate && !validDateStr(a.dueDate)) errs.push("due date must be YYYY-MM-DD");
+    if (errs.length) return { ok: false, errors: errs };
+    var rec = {
+      id: "act-" + Date.now().toString(36) + "-" + (_nextActionId++),
+      incidentId: a.incidentId || null,
+      text: text,
+      owner: String(a.owner || "").trim(),
+      dueDate: a.dueDate || "",
+      done: false,
+      createdAt: new Date().toISOString()
+    };
+    return { ok: true, actions: (actions || []).concat([rec]), action: rec };
+  }
+
+  function toggleAction(actions, id) {
+    return (actions || []).map(function (a) {
+      if (a.id !== id) return a;
+      var n = {};
+      for (var k in a) n[k] = a[k];
+      n.done = !n.done;
+      return n;
+    });
+  }
+
+  function deleteAction(actions, id) {
+    return (actions || []).filter(function (a) { return a.id !== id; });
+  }
+
+  // openActions(actions, refDate?) — undone actions, soonest due date first
+  // (no due date sorts last). refDate defaults to today, YYYY-MM-DD.
+  function openActions(actions, refDate) {
+    return (actions || []).filter(function (a) { return !a.done; })
+      .sort(function (a, b) {
+        var da = a.dueDate || "9999-99-99", db = b.dueDate || "9999-99-99";
+        return da < db ? -1 : (da > db ? 1 : 0);
+      });
+  }
+
+  function overdueActions(actions, refDate) {
+    var ref = refDate || dateToStr(new Date());
+    return (actions || []).filter(function (a) {
+      return !a.done && a.dueDate && a.dueDate < ref;
+    });
+  }
+
+  function actionsForIncident(actions, incidentId) {
+    return (actions || []).filter(function (a) { return a.incidentId === incidentId; });
+  }
+
+  // ---- weekly safety score ----
+  // recordScore(snapshots, weekKey, pct) — one entry per week (re-logging the
+  // same week replaces it); keeps the last 26 weeks.
+  function recordScore(snapshots, weekKey, pct) {
+    var list = (snapshots || []).filter(function (s) { return s.week !== weekKey; });
+    list.push({ week: weekKey, pct: Math.max(0, Math.min(100, Math.round(pct))) });
+    list.sort(function (a, b) { return a.week < b.week ? -1 : (a.week > b.week ? 1 : 0); });
+    return list.slice(-26);
+  }
+
+  // scoreTrend(snapshots) — last 8 logged weeks, oldest first.
+  function scoreTrend(snapshots) {
+    return (snapshots || []).slice(-8);
+  }
+
   // ---- storage (localStorage in browser, memory in node/tests) ----
   var _mem = {};
   function storageGet(key, fallback) {
@@ -209,6 +321,12 @@
     exportIncidentsCSV: exportIncidentsCSV,
     deleteIncident: deleteIncident, filterIncidents: filterIncidents,
     daysSinceLastIncident: daysSinceLastIncident, incidentsByWeek: incidentsByWeek,
+    checklistItemsFor: checklistItemsFor, addCustomItem: addCustomItem,
+    removeCustomItem: removeCustomItem, checklistProgressIds: checklistProgressIds,
+    addAction: addAction, toggleAction: toggleAction, deleteAction: deleteAction,
+    openActions: openActions, overdueActions: overdueActions,
+    actionsForIncident: actionsForIncident,
+    recordScore: recordScore, scoreTrend: scoreTrend,
     storageGet: storageGet, storageSet: storageSet
   };
 });

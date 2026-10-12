@@ -21,6 +21,13 @@ done
 grep -q 'js/data.js' index.html && grep -q 'js/logic.js' index.html && grep -q 'js/app.js' index.html \
   && ok "index.html loads data.js, logic.js, app.js" || bad "index.html missing script tags"
 
+# 3b. new UI wiring: custom items, corrective actions, weekly score
+grep -q 'addCustomItem\|checklistItemsFor' js/app.js && grep -q 'actForm' js/app.js && \
+grep -q 'logScore' js/app.js && grep -q 'data-del-custom' js/app.js && grep -q 'data-done-act' js/app.js \
+  && ok "app.js wires custom items + actions + score card" || bad "app.js missing improvement wiring"
+grep -q 'actions-card' css/style.css && grep -q 'scorebars' css/style.css && grep -q 'custom-kind' css/style.css \
+  && ok "improvement styles present" || bad "improvement styles missing"
+
 # 4+. logic checks via node
 node << 'NODEEOF'
 const SC = require('/home/hatch/workspace/safetycheck-ai/js/logic.js');
@@ -110,6 +117,49 @@ const weeks = SC.incidentsByWeek(log3, 8, '2026-10-07');
 const total = weeks.reduce((s, w) => s + w.count, 0);
 total === 3 ? ok('incidentsByWeek counts all 3 incidents') : bad('incidentsByWeek lost incidents: ' + total);
 (new Date(weeks[0].start) <= new Date(weeks[7].start)) ? ok('incidentsByWeek oldest-first') : bad('incidentsByWeek order');
+
+// ---- custom checklist items ----
+const ci = SC.checklistItemsFor(['a', 'b'], [{ id: 'c-1', text: 'My item' }]);
+(ci.length === 3 && ci[0].id === 'i-0' && ci[2].id === 'c-1' && ci[2].custom === true && ci[0].custom === false)
+  ? ok('checklistItemsFor merges built-ins + custom with stable ids') : bad('checklistItemsFor: ' + JSON.stringify(ci));
+const cp = SC.checklistProgressIds(ci, { 'i-0': true, 'c-1': true });
+(cp.done === 2 && cp.total === 3 && cp.pct === 67) ? ok('checklistProgressIds counts mixed ids') : bad('checklistProgressIds: ' + JSON.stringify(cp));
+const add1 = SC.addCustomItem([], '  Check shoring  ');
+(add1.ok && add1.items.length === 1 && add1.items[0].text === 'Check shoring' && add1.items[0].id)
+  ? ok('addCustomItem trims + assigns id') : bad('addCustomItem');
+(!SC.addCustomItem([], '  ').ok) ? ok('addCustomItem rejects blank') : bad('addCustomItem blank accepted');
+(!SC.addCustomItem([{ id: 'c-1', text: 'Check shoring' }], 'check SHORING').ok) ? ok('addCustomItem rejects duplicate (case-insensitive)') : bad('addCustomItem dup accepted');
+(!SC.addCustomItem([], 'x'.repeat(141)).ok) ? ok('addCustomItem rejects >140 chars') : bad('addCustomItem length');
+const rem = SC.removeCustomItem([{ id: 'c-1', text: 'a' }, { id: 'c-2', text: 'b' }], 'c-1');
+(rem.length === 1 && rem[0].id === 'c-2') ? ok('removeCustomItem deletes by id') : bad('removeCustomItem');
+
+// ---- corrective actions ----
+const aa = SC.addAction([], { text: 'Replace cord', owner: 'Jo', dueDate: '2026-10-20', incidentId: 'inc-1' });
+(aa.ok && aa.action.id && aa.action.done === false && aa.actions.length === 1 && aa.action.incidentId === 'inc-1')
+  ? ok('addAction creates an open action linked to an incident') : bad('addAction');
+(!SC.addAction([], { text: '  ' }).ok) ? ok('addAction rejects blank text') : bad('addAction blank');
+(!SC.addAction([], { text: 'x', dueDate: 'nope' }).ok) ? ok('addAction rejects bad due date') : bad('addAction date');
+const acts = aa.actions;
+const toggled = SC.toggleAction(acts, acts[0].id);
+(toggled[0].done === true && acts[0].done === false) ? ok('toggleAction flips done (immutable)') : bad('toggleAction');
+const ab = SC.addAction(acts, { text: 'No due date' }).actions;
+const open = SC.openActions(ab, '2026-10-12');
+(open.length === 2 && open[0].text === 'Replace cord') ? ok('openActions filters undone, soonest due first') : bad('openActions');
+const od = SC.overdueActions(ab.concat([{ id: 'x', text: 'late', dueDate: '2026-10-01', done: false }]), '2026-10-12');
+(od.length === 1 && od[0].text === 'late') ? ok('overdueActions catches past-due') : bad('overdueActions');
+(SC.actionsForIncident(ab, 'inc-1').length === 1 && SC.actionsForIncident(ab, 'inc-9').length === 0)
+  ? ok('actionsForIncident filters by incident') : bad('actionsForIncident');
+(SC.deleteAction(ab, ab[0].id).length === ab.length - 1) ? ok('deleteAction removes by id') : bad('deleteAction');
+
+// ---- weekly safety score ----
+let snaps = SC.recordScore([], '2026-W41', 80);
+snaps = SC.recordScore(snaps, '2026-W42', 95);
+(snaps.length === 2 && snaps[1].pct === 95) ? ok('recordScore appends weeks sorted') : bad('recordScore');
+snaps = SC.recordScore(snaps, '2026-W42', 100);
+(snaps.length === 2 && snaps[1].pct === 100) ? ok('recordScore replaces same week') : bad('recordScore replace');
+snaps = SC.recordScore(snaps, '2026-W41', 150);
+(snaps[0].pct === 100) ? ok('recordScore clamps to 100') : bad('recordScore clamp');
+(SC.scoreTrend(snaps).length === 2) ? ok('scoreTrend returns last 8') : bad('scoreTrend');
 
 console.log('NODE_PASS=' + pass + ' NODE_FAIL=' + fail);
 process.exit(fail ? 1 : 0);

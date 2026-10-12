@@ -93,6 +93,48 @@ SC.checklistProgress(trade.daily, half).pct > 0 ? ok('flow11: half-done checklis
 const reset = SC.newChecklistState(trade.daily);
 SC.checklistProgress(trade.daily, reset).pct === 0 ? ok('flow11: reset returns checklist to 0%') : bad('flow11: reset failed');
 
+// Flow 12: custom item lifecycle + incident -> corrective action -> weekly score
+const tr12 = SC.tradeById('electrical');
+// 1) add two custom items to the daily checklist, merge, tick, progress counts
+let custom = [];
+custom = SC.addCustomItem(custom, 'Check the trench shoring before entry').items;
+custom = SC.addCustomItem(custom, 'Verify LOTO tags on panel B').items;
+const merged = SC.checklistItemsFor(tr12.daily, custom);
+(merged.length === 8 && merged[7].custom === true)
+  ? ok('flow12: custom items merge after built-ins (6+2)') : bad('flow12: merge');
+let st12 = SC.newChecklistState(tr12.daily); // built-in i- keys only
+st12 = SC.toggleChecklist(st12, merged[6].id); // tick first custom item
+st12 = SC.toggleChecklist(st12, 'i-0');       // tick first built-in
+const p12 = SC.checklistProgressIds(merged, st12);
+(p12.done === 2 && p12.total === 8 && p12.pct === 25)
+  ? ok('flow12: progress counts built-in + custom ticks (2/8 = 25%)') : bad('flow12: progress ' + JSON.stringify(p12));
+// 2) delete one custom item; its tick key is dropped with it
+custom = SC.removeCustomItem(custom, custom[0].id);
+const merged2 = SC.checklistItemsFor(tr12.daily, custom);
+delete st12['c-' + 'placeholder']; // no-op guard
+(merged2.length === 7 && merged2.every(m => m.id !== merged[6].id))
+  ? ok('flow12: removing a custom item shrinks the merged checklist') : bad('flow12: remove');
+// 3) incident -> corrective action -> mark done
+const inc12 = SC.addIncident([], { date: '2026-10-10', type: 'Near miss', severity: 'High', notes: 'Ladder slipped on wet floor' });
+inc12.ok ? ok('flow12: incident logged') : bad('flow12: incident failed');
+let actions = SC.addAction([], { incidentId: inc12.incident.id, text: 'Buy non-slip ladder feet', owner: 'Jo', dueDate: '2026-10-17' }).actions;
+actions = SC.addAction(actions, { incidentId: inc12.incident.id, text: 'Mop and cone the entryway', dueDate: '2026-10-08' }).actions;
+(SC.actionsForIncident(actions, inc12.incident.id).length === 2)
+  ? ok('flow12: two corrective actions linked to the incident') : bad('flow12: action link');
+const od12 = SC.overdueActions(actions, '2026-10-12');
+(od12.length === 1 && od12[0].text === 'Mop and cone the entryway')
+  ? ok('flow12: overdue action flagged (due 10-08)') : bad('flow12: overdue');
+actions = SC.toggleAction(actions, actions[1].id);
+(SC.openActions(actions, '2026-10-12').length === 1)
+  ? ok('flow12: completing an action drops it from the open list') : bad('flow12: open list');
+// 4) weekly safety score: log, re-log same week replaces
+let snaps12 = SC.recordScore([], '2026-W41', 75);
+snaps12 = SC.recordScore(snaps12, '2026-W42', 90);
+snaps12 = SC.recordScore(snaps12, '2026-W42', 95);
+const trend12 = SC.scoreTrend(snaps12);
+(trend12.length === 2 && trend12[1].pct === 95 && trend12[0].week === '2026-W41')
+  ? ok('flow12: weekly score trend logs + replaces (75 -> 90 -> 95)') : bad('flow12: score trend ' + JSON.stringify(trend12));
+
 console.log('---');
 console.log('e2e: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -38,6 +38,14 @@
     return s;
   }
 
+  // Built-in trade items + this trade's custom items, with stable ids.
+  function customItems(kind) {
+    return SC.storageGet("custom:" + state.trade + ":" + kind, []);
+  }
+  function itemsFor(kind) {
+    return SC.checklistItemsFor(trade()[kind], customItems(kind));
+  }
+
   // ---------- render ----------
   function renderHeader() {
     var opts = SC.listTrades().map(function (t) {
@@ -70,22 +78,24 @@
   }
 
   function checkRows(items, st, kind) {
-    return items.map(function (item, i) {
-      var id = "i-" + i, done = !!st[id];
+    return items.map(function (it) {
+      var done = !!st[it.id];
       return '<label class="checkrow' + (done ? " done" : "") + '">' +
-        '<input type="checkbox" data-kind="' + kind + '" data-id="' + id + '"' + (done ? " checked" : "") + ">" +
+        '<input type="checkbox" data-kind="' + kind + '" data-id="' + esc(it.id) + '"' + (done ? " checked" : "") + ">" +
         '<span class="box" aria-hidden="true"></span>' +
-        '<span class="lbl">' + esc(item) + "</span></label>";
+        '<span class="lbl">' + esc(it.label) + "</span>" +
+        (it.custom ? '<button class="icon-btn tiny" data-del-custom="' + kind + ':' + esc(it.id) + '" aria-label="Remove custom item" title="Remove custom item">✕</button>' : "") +
+        "</label>";
     }).join("");
   }
 
   function checklistHTML(kind, title, kicker) {
-    var t = trade();
-    var items = t[kind];
-    var st = getCheckState(kind, items);
-    var prog = SC.checklistProgress(items, st);
+    var items = itemsFor(kind);
+    var st = getCheckState(kind, trade()[kind]);
+    var prog = SC.checklistProgressIds(items, st);
+    var customCount = items.filter(function (it) { return it.custom; }).length;
     return '<section class="card inspect">' +
-      '<div class="card-top"><div><p class="kicker">' + kicker + '</p><h2>' + title + "</h2></div>" +
+      '<div class="card-top"><div><p class="kicker">' + kicker + (customCount ? " · " + customCount + " custom" : "") + '</p><h2>' + title + "</h2></div>" +
       '<div class="card-actions"><div class="pct-big">' + prog.pct + '<span>%</span></div>' +
       '<button class="btn ghost tiny" data-reset-check="' + kind + '">Reset</button></div></div>' +
       progressHTML(prog) +
@@ -100,7 +110,62 @@
     return '<div class="row checktools"><button id="printCheck" class="btn ghost">Print checklists</button>' +
       '<span class="muted small">Hand the printout to the crew for the morning huddle.</span></div>' +
       checklistHTML("daily", "Daily Safety Checklist", "Inspection · resets each morning") +
-      checklistHTML("weekly", "Weekly Safety Checklist", "Inspection · resets each ISO week");
+      checklistHTML("weekly", "Weekly Safety Checklist", "Inspection · resets each ISO week") +
+      renderScoreCard() + renderCustomManager();
+  }
+
+  // ---- Weekly safety score ----
+  function scoreWeekKey() {
+    var d = new Date();
+    return d.getFullYear() + "-W" + String(SC.isoWeekNumber(d)).padStart(2, "0");
+  }
+  function combinedScore() {
+    var dp = SC.checklistProgressIds(itemsFor("daily"), SC.storageGet(checkKey("daily"), {}));
+    var wp = SC.checklistProgressIds(itemsFor("weekly"), SC.storageGet(checkKey("weekly"), {}));
+    var pp = SC.checklistProgressIds(itemsFor("ppe"), SC.storageGet("ppe:" + state.trade, {}));
+    return Math.round((dp.pct + wp.pct + pp.pct) / 3);
+  }
+  function renderScoreCard() {
+    var score = combinedScore();
+    var wk = scoreWeekKey();
+    var snaps = SC.scoreTrend(SC.storageGet("scores", []));
+    var logged = SC.storageGet("scores", []).some(function (s) { return s.week === wk; });
+    var max = 100;
+    var bars = snaps.map(function (s) {
+      var h = Math.max(3, Math.round(s.pct / max * 48));
+      var cur = s.week === wk ? " cur" : "";
+      return '<div class="sbar' + cur + '" title="' + esc(s.week) + ': ' + s.pct + '%">' +
+        "<span>" + s.pct + "%</span><i style='height:" + h + "px'></i><em>" + esc(s.week.slice(5)) + "</em></div>";
+    }).join("");
+    return '<section class="card"><div class="card-top"><div><p class="kicker">Track it</p><h2>Weekly safety score</h2></div>' +
+      '<div class="card-actions"><div class="pct-big">' + score + '<span>%</span></div>' +
+      '<button id="logScore" class="btn tiny"' + (logged ? " disabled" : "") + ">" +
+      (logged ? "Logged ✓" : "Log this week") + "</button></div></div>" +
+      '<p class="muted small">Average completion of the daily, weekly, and PPE checklists right now. Log it each week to watch the trend.</p>' +
+      (snaps.length ? '<div class="scorebars">' + bars + "</div>"
+        : '<p class="muted small">No scores logged yet — log this week to start the trend.</p>') +
+      "</section>";
+  }
+
+  // ---- Custom checklist items ----
+  function renderCustomManager() {
+    var kinds = [["daily", "Daily"], ["weekly", "Weekly"], ["ppe", "PPE"]];
+    var list = kinds.map(function (k) {
+      var items = customItems(k[0]);
+      return '<div class="custom-kind"><h4>' + k[1] + ' <span class="muted small">(' + items.length + ")</span></h4>" +
+        (items.length ? "<ul>" + items.map(function (c) {
+          return "<li>" + esc(c.text) +
+            ' <button class="icon-btn tiny" data-del-custom="' + k[0] + ":" + esc(c.id) + '" aria-label="Remove custom item">✕</button></li>';
+        }).join("") + "</ul>" : '<p class="muted small">No custom items.</p>') + "</div>";
+    }).join("");
+    return '<section class="card"><div class="card-top"><div><p class="kicker">Make it yours</p><h2>Custom checklist items</h2></div></div>' +
+      '<p class="muted small">Add your own items to any ' + esc(trade().name) + ' checklist — they are saved in this browser and print with the rest.</p>' +
+      '<div class="row"><select id="customKind" aria-label="Checklist">' +
+      kinds.map(function (k) { return '<option value="' + k[0] + '">' + k[1] + "</option>"; }).join("") + "</select>" +
+      '<input type="text" id="customText" placeholder="e.g. Check the trench shoring before entry" maxlength="140" style="flex:1;min-width:200px">' +
+      '<button id="addCustom" class="btn">Add item</button></div>' +
+      '<div id="customErr" class="err" role="alert"></div>' +
+      '<div class="custom-list">' + list + "</div></section>";
   }
 
   function renderTalk() {
@@ -144,8 +209,10 @@
     }).join("");
     var filtered = SC.filterIncidents(log, f).slice().reverse();
     var rows = filtered.map(function (r) {
+      var actCount = SC.actionsForIncident(SC.storageGet("actions", []), r.id).length;
       return "<tr><td class='d'>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + esc(r.notes) + "</td>" +
-        "<td class='rowdel'><button class='btn ghost tiny' data-del-inc='" + esc(r.id) + "' aria-label='Delete incident'>Delete</button></td></tr>";
+        "<td class='rowdel'><button class='btn ghost tiny' data-act-inc='" + esc(r.id) + "' title='Create a corrective action for this incident'>+ Action" + (actCount ? " (" + actCount + ")" : "") + "</button> " +
+        "<button class='btn ghost tiny' data-del-inc='" + esc(r.id) + "' aria-label='Delete incident'>Delete</button></td></tr>";
     }).join("");
     return '<section class="card">' +
       '<div class="card-top"><div><p class="kicker">Issue reporting</p><h2>Incident Log</h2></div></div>' +
@@ -172,19 +239,59 @@
           ? '<div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th>Severity</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div>"
           : '<div class="emptybox"><p class="muted small">No incidents match your filters.</p></div>')
         : '<div class="emptybox"><p><strong>No incidents logged yet.</strong></p><p class="muted small">Log near misses too — they\'re free lessons.</p></div>') +
+      "</section>" + renderActionsCard();
+  }
+
+  function renderActionsCard() {
+    var actions = SC.storageGet("actions", []);
+    var open = SC.openActions(actions, todayStr());
+    var overdue = SC.overdueActions(actions, todayStr());
+    var log = SC.storageGet("incidents", []);
+    var rows = open.map(function (a) {
+      var inc = null;
+      log.forEach(function (r) { if (r.id === a.incidentId) inc = r; });
+      var od = a.dueDate && a.dueDate < todayStr();
+      return '<div class="action' + (od ? " overdue" : "") + '">' +
+        "<div><strong>" + esc(a.text) + "</strong>" +
+        '<div class="muted small">' +
+        (inc ? esc(inc.date) + " · " + esc(inc.type) + " · " : "") +
+        (a.owner ? "Owner: " + esc(a.owner) + " · " : "") +
+        (a.dueDate ? "Due " + esc(a.dueDate) + (od ? " — OVERDUE" : "") : "No due date") +
+        "</div></div>" +
+        '<div class="action-btns"><button class="btn tiny" data-done-act="' + esc(a.id) + '">Mark done</button>' +
+        ' <button class="btn ghost tiny" data-del-act="' + esc(a.id) + '">Delete</button></div></div>';
+    }).join("");
+    var incOpts = '<option value="">None</option>' + log.slice().reverse().map(function (r) {
+      return '<option value="' + esc(r.id) + '"' + (state.actionFor === r.id ? " selected" : "") + ">" +
+        esc(r.date) + " — " + esc(r.type) + "</option>";
+    }).join("");
+    return '<section class="card actions-card">' +
+      '<div class="card-top"><div><p class="kicker">Follow-through</p><h2>Corrective actions' +
+      (overdue.length ? ' <span class="od-badge">' + overdue.length + " overdue</span>" : "") + "</h2></div></div>" +
+      '<p class="muted small">Turn incidents into fixes — assign an owner and a due date, then check them off.</p>' +
+      '<form id="actForm" class="incform">' +
+      '<label class="full">Action <input type="text" id="actText" placeholder="e.g. Replace the frayed extension cord on site 2" required></label>' +
+      '<label>Linked incident <select id="actInc">' + incOpts + "</select></label>" +
+      '<label>Owner <input type="text" id="actOwner" placeholder="Who owns this?"></label>' +
+      '<label>Due date <input type="date" id="actDue"></label>' +
+      '<button class="btn full" type="submit">Add action</button></form>' +
+      '<div id="actErr" class="err" role="alert"></div>' +
+      (open.length ? '<div class="actions">' + rows + "</div>"
+        : '<div class="emptybox"><p class="muted small">No open actions — every incident has been followed through.</p></div>') +
       "</section>";
   }
 
   function renderPpe() {
     var t = trade();
+    var items = itemsFor("ppe");
     var st = SC.storageGet("ppe:" + state.trade, SC.newChecklistState(t.ppe));
-    var prog = SC.checklistProgress(t.ppe, st);
+    var prog = SC.checklistProgressIds(items, st);
     return '<section class="card inspect">' +
       '<div class="card-top"><div><p class="kicker">Gear up · before every shift</p><h2>PPE Checklist — ' + esc(t.name) + "</h2></div>" +
       '<div class="card-actions"><div class="pct-big">' + prog.pct + '<span>%</span></div>' +
       '<button class="btn ghost tiny" data-reset-check="ppe">Reset</button></div></div>' +
       progressHTML(prog) +
-      '<div class="checks">' + checkRows(t.ppe, st, "ppe") + "</div>" +
+      '<div class="checks">' + checkRows(items, st, "ppe") + "</div>" +
       '<p class="muted small">Tick off each item as you gear up. PPE is your last line of defense — inspect it before every shift.</p></section>';
   }
 
@@ -280,6 +387,75 @@
           b.getAttribute("data-del-inc")));
         render();
       });
+    });
+    // jump from an incident row to the corrective-action form, preselected
+    Array.prototype.forEach.call(document.querySelectorAll("[data-act-inc]"), function (b) {
+      b.addEventListener("click", function () {
+        state.actionFor = b.getAttribute("data-act-inc");
+        render();
+        var f2 = document.getElementById("actForm");
+        if (f2) f2.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    // corrective action form
+    var af = document.getElementById("actForm");
+    if (af) af.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var res = SC.addAction(SC.storageGet("actions", []), {
+        incidentId: document.getElementById("actInc").value || null,
+        text: document.getElementById("actText").value,
+        owner: document.getElementById("actOwner").value,
+        dueDate: document.getElementById("actDue").value
+      });
+      if (!res.ok) { document.getElementById("actErr").textContent = res.errors.join("; "); return; }
+      SC.storageSet("actions", res.actions);
+      state.actionFor = null;
+      render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-done-act]"), function (b) {
+      b.addEventListener("click", function () {
+        SC.storageSet("actions", SC.toggleAction(SC.storageGet("actions", []),
+          b.getAttribute("data-done-act")));
+        render();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-del-act]"), function (b) {
+      b.addEventListener("click", function () {
+        if (!confirm("Delete this corrective action?")) return;
+        SC.storageSet("actions", SC.deleteAction(SC.storageGet("actions", []),
+          b.getAttribute("data-del-act")));
+        render();
+      });
+    });
+    // custom checklist items
+    var ac = document.getElementById("addCustom");
+    if (ac) ac.addEventListener("click", function () {
+      var kind = document.getElementById("customKind").value;
+      var key = "custom:" + state.trade + ":" + kind;
+      var res = SC.addCustomItem(SC.storageGet(key, []), document.getElementById("customText").value);
+      if (!res.ok) { document.getElementById("customErr").textContent = res.error; return; }
+      SC.storageSet(key, res.items);
+      render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-del-custom]"), function (b) {
+      b.addEventListener("click", function () {
+        var parts = b.getAttribute("data-del-custom").split(":");
+        var kind = parts[0], id = parts.slice(1).join(":");
+        if (!confirm("Remove this custom item?")) return;
+        var key = "custom:" + state.trade + ":" + kind;
+        SC.storageSet(key, SC.removeCustomItem(SC.storageGet(key, []), id));
+        var skey = kind === "ppe" ? "ppe:" + state.trade : checkKey(kind);
+        var st = SC.storageGet(skey, {});
+        delete st[id];
+        SC.storageSet(skey, st);
+        render();
+      });
+    });
+    // weekly safety score
+    var ls = document.getElementById("logScore");
+    if (ls) ls.addEventListener("click", function () {
+      SC.storageSet("scores", SC.recordScore(SC.storageGet("scores", []), scoreWeekKey(), combinedScore()));
+      render();
     });
   }
 
