@@ -107,8 +107,15 @@
   }
 
   function renderCheck() {
+    var streak = SC.completionStreak(SC.storageGet("streakDays", []), todayStr());
+    var streakHTML = streak > 0
+      ? '<div class="streak-banner"><span class="streak-flame" aria-hidden="true"></span>' +
+        '<strong>' + streak + "-day perfect streak</strong>" +
+        '<span class="muted small"> — daily checklist completed ' + streak + ' day' + (streak === 1 ? "" : "s") + ' running.</span></div>'
+      : "";
     return '<div class="row checktools"><button id="printCheck" class="btn ghost">Print checklists</button>' +
       '<span class="muted small">Hand the printout to the crew for the morning huddle.</span></div>' +
+      streakHTML +
       checklistHTML("daily", "Daily Safety Checklist", "Inspection · resets each morning") +
       checklistHTML("weekly", "Weekly Safety Checklist", "Inspection · resets each ISO week") +
       renderScoreCard() + renderCustomManager();
@@ -168,6 +175,27 @@
       '<div class="custom-list">' + list + "</div></section>";
   }
 
+  function talkAttendKey(tk) {
+    var d = new Date();
+    return tk.week ? d.getFullYear() + "-W" + String(tk.week).padStart(2, "0") : "bonus-" + todayStr();
+  }
+
+  function attendanceHTML(tk) {
+    var key = talkAttendKey(tk);
+    var list = SC.attendanceFor(SC.storageGet("attendance", []), key);
+    var rows = list.length
+      ? '<ul class="attlist">' + list.map(function (s) {
+          return "<li>" + esc(s.name) + ' <span class="muted small">· ' + esc(s.at.slice(11, 16)) + "</span></li>";
+        }).join("") + "</ul>"
+      : '<p class="muted small">Nobody signed in yet.</p>';
+    return '<div class="attend"><div class="card-top"><div><p class="kicker">Attendance record</p>' +
+      '<h2>Crew sign-in <span class="cnt-badge">' + list.length + " present</span></h2></div></div>" +
+      '<div class="row"><input id="attName" type="text" placeholder="Crew member name" maxlength="60">' +
+      '<button id="attAdd" class="btn">Sign in</button></div>' +
+      '<p class="err small" id="attErr"></p>' + rows +
+      '<p class="muted small">Names are stored locally — print or screenshot for your OSHA records.</p></div>';
+  }
+
   function renderTalk() {
     var tk = state.talk;
     var pts = tk.points.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("");
@@ -179,7 +207,8 @@
       "<ol class='talkpts'>" + pts + "</ol>" +
       '<div class="row"><button id="newTalk" class="btn">Pick another topic</button>' +
       '<button id="weekTalk" class="btn ghost">Back to this week\'s topic</button></div>' +
-      '<p class="muted small">52 rotating topics — one per week, with talking points for a 5-minute crew huddle.</p></section>';
+      '<p class="muted small">52 rotating topics — one per week, with talking points for a 5-minute crew huddle.</p>' +
+      attendanceHTML(tk) + '</section>';
   }
 
   function trendBars(log) {
@@ -324,6 +353,14 @@
         var st = SC.storageGet(key, SC.newChecklistState(items));
         st = SC.toggleChecklist(st, id);
         SC.storageSet(key, st);
+        // daily checklist completed -> feed the perfect-day streak
+        if (kind === "daily") {
+          var full = itemsFor("daily");
+          var prog = SC.checklistProgressIds(full, st);
+          if (prog.total > 0 && prog.pct === 100) {
+            SC.storageSet("streakDays", SC.recordCompletion(SC.storageGet("streakDays", []), todayStr()));
+          }
+        }
         render();
       });
     });
@@ -331,6 +368,15 @@
     if (nt) nt.addEventListener("click", function () { state.talk = SC.randomTalk(state.talk.index); render(); });
     var wt = document.getElementById("weekTalk");
     if (wt) wt.addEventListener("click", function () { state.talk = SC.currentTalk(); render(); });
+    var attAdd = document.getElementById("attAdd");
+    if (attAdd) attAdd.addEventListener("click", function () {
+      var nm = document.getElementById("attName").value;
+      var key = talkAttendKey(state.talk);
+      var res = SC.signInAttendance(SC.storageGet("attendance", []), key, state.talk.title, nm);
+      if (!res.ok) { document.getElementById("attErr").textContent = res.errors.join("; "); return; }
+      SC.storageSet("attendance", res.signins);
+      render();
+    });
     // manual checklist resets (re-do an inspection after an incident, etc.)
     Array.prototype.forEach.call(document.querySelectorAll("[data-reset-check]"), function (b) {
       b.addEventListener("click", function () {
@@ -355,6 +401,20 @@
       });
       if (!res.ok) { document.getElementById("incErr").textContent = res.errors.join("; "); return; }
       SC.storageSet("incidents", res.log);
+      // High-severity incidents always get a follow-up: auto-create a linked
+      // corrective action due in 7 days so nothing falls through the cracks.
+      if (document.getElementById("incSev").value === "High") {
+        var acts = SC.storageGet("actions", []);
+        var due = new Date(); due.setDate(due.getDate() + 7);
+        var ar = SC.addAction(acts, {
+          incidentId: res.incident.id,
+          text: "Investigate " + document.getElementById("incType").value +
+            " incident (" + document.getElementById("incDate").value + ")",
+          owner: "",
+          dueDate: SC.dateToStr(due)
+        });
+        if (ar.ok) SC.storageSet("actions", ar.actions);
+      }
       render();
     });
     var ex = document.getElementById("expCsv");

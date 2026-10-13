@@ -327,6 +327,57 @@
     openActions: openActions, overdueActions: overdueActions,
     actionsForIncident: actionsForIncident,
     recordScore: recordScore, scoreTrend: scoreTrend,
-    storageGet: storageGet, storageSet: storageSet
+    storageGet: storageGet, storageSet: storageSet,
+    signInAttendance: signInAttendance, attendanceFor: attendanceFor,
+    recordCompletion: recordCompletion, completionStreak: completionStreak
   };
+
+  // ---- toolbox talk attendance ----
+  // signins: [{ week, talk, name, at }]. Week-scoped: the same crew signs in
+  // each week, giving the foreman an OSHA-friendly attendance record.
+  function signInAttendance(signins, weekKey, talkTitle, name) {
+    name = String(name == null ? "" : name).trim();
+    if (!name) return { ok: false, errors: ["Name is required."] };
+    var rec = {
+      week: weekKey, talk: String(talkTitle || ""),
+      name: name.slice(0, 60), at: new Date().toISOString()
+    };
+    return { ok: true, signins: (signins || []).concat([rec]) };
+  }
+
+  function attendanceFor(signins, weekKey) {
+    return (signins || []).filter(function (s) { return s.week === weekKey; });
+  }
+
+  // ---- daily completion streak ----
+  // days: ["YYYY-MM-DD", ...] — days the daily checklist hit 100%.
+  function recordCompletion(days, dateStr) {
+    var list = (days || []).slice();
+    if (validDateStr(dateStr) && list.indexOf(dateStr) < 0) list.push(dateStr);
+    list.sort();
+    return list.slice(-365);
+  }
+
+  // completionStreak(days, refDateStr?) — consecutive completed days ending
+  // at refDate (default today). A missed day breaks the streak.
+  function completionStreak(days, refDateStr) {
+    var ref = refDateStr || dateToStr(new Date());
+    if (!validDateStr(ref)) return 0;
+    var set = {};
+    (days || []).forEach(function (d) { set[d] = true; });
+    var streak = 0, cur = ref, guard = 0;
+    while (set[cur] && guard < 370) {
+      streak++;
+      cur = shiftDay(cur, -1);
+      guard++;
+    }
+    return streak;
+  }
+
+  function shiftDay(dateStr, delta) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    d.setDate(d.getDate() + delta);
+    return dateToStr(d);
+  }
 });

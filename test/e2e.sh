@@ -135,6 +135,32 @@ const trend12 = SC.scoreTrend(snaps12);
 (trend12.length === 2 && trend12[1].pct === 95 && trend12[0].week === '2026-W41')
   ? ok('flow12: weekly score trend logs + replaces (75 -> 90 -> 95)') : bad('flow12: score trend ' + JSON.stringify(trend12));
 
+// Flow 13 (sweep-2): talk attendance + daily streak + high-severity auto-action
+{
+  let s13 = SC.signInAttendance([], '2026-W42', 'Ladder safety', 'Maya').signins;
+  s13 = SC.signInAttendance(s13, '2026-W42', 'Ladder safety', 'Sam').signins;
+  s13 = SC.signInAttendance(s13, '2026-W41', 'Heat stress', 'Maya').signins;
+  const wk = SC.attendanceFor(s13, '2026-W42');
+  (wk.length === 2 && wk.every(x => x.talk === 'Ladder safety'))
+    ? ok('flow13: two crew signed in for this week\'s talk')
+    : bad('flow13: attendance off');
+
+  let d13 = ['2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12'].reduce((a, d) => SC.recordCompletion(a, d), []);
+  (SC.completionStreak(d13, '2026-10-12') === 4)
+    ? ok('flow13: 4-day perfect streak after a week of completed checklists')
+    : bad('flow13: streak off');
+
+  const hi = SC.addIncident([], { date: '2026-10-12', type: 'Recordable injury', severity: 'High', notes: 'Fell from scaffold' });
+  const auto = SC.addAction([], {
+    incidentId: hi.incident.id,
+    text: 'Investigate Recordable injury incident (2026-10-12)',
+    owner: '', dueDate: '2026-10-19'
+  });
+  (auto.ok && auto.action.incidentId === hi.incident.id && auto.action.dueDate === '2026-10-19' && !auto.action.done)
+    ? ok('flow13: high-severity incident produces a linked 7-day follow-up action')
+    : bad('flow13: auto-action off');
+}
+
 console.log('---');
 console.log('e2e: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

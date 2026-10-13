@@ -161,6 +161,34 @@ snaps = SC.recordScore(snaps, '2026-W41', 150);
 (snaps[0].pct === 100) ? ok('recordScore clamps to 100') : bad('recordScore clamp');
 (SC.scoreTrend(snaps).length === 2) ? ok('scoreTrend returns last 8') : bad('scoreTrend');
 
+// ---- toolbox talk attendance ----
+let signins = SC.signInAttendance([], '2026-W42', 'Ladder safety', 'Maya').signins;
+signins = SC.signInAttendance(signins, '2026-W42', 'Ladder safety', 'Jo').signins;
+(SC.attendanceFor(signins, '2026-W42').length === 2) ? ok('attendance sign-in x2') : bad('attendance');
+(SC.attendanceFor(signins, '2026-W41').length === 0) ? ok('attendance week-scoped') : bad('attendance scope');
+(!SC.signInAttendance([], 'k', 't', '   ').ok) ? ok('attendance rejects blank name') : bad('attendance blank');
+
+// ---- daily completion streak ----
+let days = SC.recordCompletion([], '2026-10-11');
+days = SC.recordCompletion(days, '2026-10-12');
+days = SC.recordCompletion(days, '2026-10-13');
+(SC.completionStreak(days, '2026-10-13') === 3) ? ok('streak counts 3 consecutive days') : bad('streak');
+days = SC.recordCompletion(days, '2026-10-15');
+(SC.completionStreak(days, '2026-10-15') === 1) ? ok('streak breaks on missed day') : bad('streak break');
+(SC.completionStreak([], '2026-10-13') === 0) ? ok('empty streak is 0') : bad('empty streak');
+const dupBefore = days.length;
+days = SC.recordCompletion(days, '2026-10-15');
+(days.length === dupBefore) ? ok('streak day deduped') : bad('streak dup');
+
+// ---- high-severity auto-action wiring ----
+const fs = require('fs');
+const appSrc = fs.readFileSync('js/app.js', 'utf8');
+(appSrc.indexOf('attAdd') > 0 && appSrc.indexOf('attendanceHTML') > 0) ? ok('attendance UI wired') : bad('attendance UI');
+(appSrc.indexOf('streakDays') > 0 && appSrc.indexOf('completionStreak') > 0) ? ok('streak UI wired') : bad('streak UI');
+(appSrc.indexOf('Investigate') > 0 && /incSev.{0,40}===\s*"High"/.test(appSrc)) ? ok('high-severity auto-action wired') : bad('auto-action UI');
+const cssSrc = fs.readFileSync('css/style.css', 'utf8');
+(cssSrc.indexOf('streak-banner') > 0 && cssSrc.indexOf('attlist') > 0) ? ok('streak + attendance styles') : bad('styles');
+
 console.log('NODE_PASS=' + pass + ' NODE_FAIL=' + fail);
 process.exit(fail ? 1 : 0);
 NODEEOF
