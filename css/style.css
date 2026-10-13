@@ -347,3 +347,40 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   padding: .15rem .5rem; margin-left: .5rem; border-radius: 0; vertical-align: middle;
 }
 .err.small { color: #b91c1c; min-height: 1.2em; }
+
+/* ---------- redesign pass 2026-10-13: site status strip + inspection runner ---------- */
+.statusstrip {
+  background: var(--char); color: #f4efe4;
+  border-radius: 0; padding: 1.25rem 1.35rem 1.35rem;
+  box-shadow: var(--shadow); margin-bottom: 1.1rem;
+}
+.status-head { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; flex-wrap: wrap; margin-bottom: .9rem; }
+.status-head .kicker { color: var(--hivis); }
+.status-head h2 { margin: 0; font-size: 1.1rem; color: #fff; font-weight: 700; }
+.statiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .55rem; }
+.stile {
+  background: var(--char-2); border: 1px solid #3a332b; border-left: 4px solid var(--hivis);
+  padding: .7rem .8rem; min-width: 0;
+}
+.stile b { display: block; font-size: 1.35rem; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stile span { font-size: .72rem; color: #a89e8c; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.stile.good { border-left-color: var(--green); }
+.stile.good b { color: #7ddf9e; }
+.stile.bad { border-left-color: var(--red); }
+.stile.bad b { color: #ff9a8f; }
+.inc-thumb {
+  display: block; width: 72px; height: 54px; object-fit: cover;
+  border: 1px solid var(--line); margin-bottom: .4rem; background: #faf7f0;
+}
+/* inspection runner: bigger field-friendly tap targets */
+.card.inspect { padding-top: 0; }
+.card.inspect .card-top {
+  position: sticky; top: 0; background: var(--card); z-index: 2;
+  padding-top: 1.35rem; border-bottom: 2px solid var(--char);
+}
+.checkrow { padding: 1rem .3rem; font-size: 1.02rem; }
+.checkrow input { width: 1.7rem; height: 1.7rem; }
+@media (max-width: 700px) {
+  .statiles { grid-template-columns: repeat(2, 1fr); }
+  .statusstrip { padding: 1rem; }
+}

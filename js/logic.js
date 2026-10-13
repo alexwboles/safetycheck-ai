@@ -89,7 +89,8 @@
       id: "inc-" + Date.now().toString(36) + "-" + (_nextId++),
       date: inc.date, type: inc.type,
       severity: inc.severity || "Low",
-      notes: String(inc.notes).trim()
+      notes: String(inc.notes).trim(),
+      photo: inc.photo || null
     };
     var next = (log || []).concat([rec]);
     return { ok: true, log: next, incident: rec };

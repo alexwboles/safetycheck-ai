@@ -11,6 +11,29 @@
     });
   }
 
+  // Browser-only: read a photo file, resize to a thumbnail data-URL.
+  function readPhoto(file, done) {
+    if (!file) { done(null); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var max = 480;
+        var scale = Math.min(1, max / Math.max(img.width, img.height));
+        var cv = document.createElement("canvas");
+        cv.width = Math.max(1, Math.round(img.width * scale));
+        cv.height = Math.max(1, Math.round(img.height * scale));
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        try { done(cv.toDataURL("image/jpeg", 0.72)); }
+        catch (e) { done(null); }
+      };
+      img.onerror = function () { done(null); };
+      img.src = reader.result;
+    };
+    reader.onerror = function () { done(null); };
+    reader.readAsDataURL(file);
+  }
+
   function todayStr() {
     var d = new Date();
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -108,17 +131,37 @@
 
   function renderCheck() {
     var streak = SC.completionStreak(SC.storageGet("streakDays", []), todayStr());
-    var streakHTML = streak > 0
-      ? '<div class="streak-banner"><span class="streak-flame" aria-hidden="true"></span>' +
-        '<strong>' + streak + "-day perfect streak</strong>" +
-        '<span class="muted small"> — daily checklist completed ' + streak + ' day' + (streak === 1 ? "" : "s") + ' running.</span></div>'
-      : "";
-    return '<div class="row checktools"><button id="printCheck" class="btn ghost">Print checklists</button>' +
+    return renderSiteStatus(streak) +
+      '<div class="row checktools"><button id="printCheck" class="btn ghost">Print checklists</button>' +
       '<span class="muted small">Hand the printout to the crew for the morning huddle.</span></div>' +
-      streakHTML +
       checklistHTML("daily", "Daily Safety Checklist", "Inspection · resets each morning") +
       checklistHTML("weekly", "Weekly Safety Checklist", "Inspection · resets each ISO week") +
       renderScoreCard() + renderCustomManager();
+  }
+
+  // ---- Site status command strip (SafetyCulture-style live metrics) ----
+  function renderSiteStatus(streak) {
+    var dp = SC.checklistProgressIds(itemsFor("daily"), SC.storageGet(checkKey("daily"), {}));
+    var wp = SC.checklistProgressIds(itemsFor("weekly"), SC.storageGet(checkKey("weekly"), {}));
+    var pp = SC.checklistProgressIds(itemsFor("ppe"), SC.storageGet("ppe:" + state.trade, {}));
+    var actions = SC.storageGet("actions", []);
+    var open = SC.openActions(actions, todayStr());
+    var overdue = SC.overdueActions(actions, todayStr());
+    var days = SC.daysSinceLastIncident(SC.storageGet("incidents", []));
+    var tiles = [
+      ["Daily inspection", dp.pct + "%", dp.pct === 100 ? "good" : ""],
+      ["Weekly inspection", wp.pct + "%", wp.pct === 100 ? "good" : ""],
+      ["PPE check", pp.pct + "%", pp.pct === 100 ? "good" : ""],
+      ["Safety score", combinedScore() + "", ""],
+      ["Perfect streak", streak + (streak === 1 ? " day" : " days"), streak > 0 ? "good" : ""],
+      ["Open actions", open.length + (overdue.length ? " · " + overdue.length + " overdue" : ""), overdue.length ? "bad" : ""],
+      ["Since last incident", days === null ? "—" : days + (days === 1 ? " day" : " days"), ""]
+    ];
+    return '<section class="statusstrip" aria-label="Site status today">' +
+      '<div class="status-head"><p class="kicker">Live site status</p><h2>' + esc(trade().name) + " · " + esc(todayStr()) + "</h2></div>" +
+      '<div class="statiles">' + tiles.map(function (t) {
+        return '<div class="stile' + (t[2] ? " " + t[2] : "") + '"><b>' + esc(t[1]) + "</b><span>" + esc(t[0]) + "</span></div>";
+      }).join("") + "</div></section>";
   }
 
   // ---- Weekly safety score ----
@@ -191,9 +234,10 @@
     return '<div class="attend"><div class="card-top"><div><p class="kicker">Attendance record</p>' +
       '<h2>Crew sign-in <span class="cnt-badge">' + list.length + " present</span></h2></div></div>" +
       '<div class="row"><input id="attName" type="text" placeholder="Crew member name" maxlength="60">' +
-      '<button id="attAdd" class="btn">Sign in</button></div>' +
+      '<button id="attAdd" class="btn">Sign in</button>' +
+      (list.length ? ' <button id="attCsv" class="btn ghost">Export CSV</button>' : "") + "</div>" +
       '<p class="err small" id="attErr"></p>' + rows +
-      '<p class="muted small">Names are stored locally — print or screenshot for your OSHA records.</p></div>';
+      '<p class="muted small">Names are stored locally — export the CSV for your OSHA training records.</p></div>';
   }
 
   function renderTalk() {
@@ -239,7 +283,8 @@
     var filtered = SC.filterIncidents(log, f).slice().reverse();
     var rows = filtered.map(function (r) {
       var actCount = SC.actionsForIncident(SC.storageGet("actions", []), r.id).length;
-      return "<tr><td class='d'>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + esc(r.notes) + "</td>" +
+      var photo = r.photo ? '<img class="inc-thumb" src="' + esc(r.photo) + '" alt="Incident photo evidence">' : "";
+      return "<tr><td class='d'>" + esc(r.date) + "</td><td>" + esc(r.type) + "</td><td><span class='sev sev-" + esc(r.severity.toLowerCase()) + "'>" + esc(r.severity) + "</span></td><td>" + photo + esc(r.notes) + "</td>" +
         "<td class='rowdel'><button class='btn ghost tiny' data-act-inc='" + esc(r.id) + "' title='Create a corrective action for this incident'>+ Action" + (actCount ? " (" + actCount + ")" : "") + "</button> " +
         "<button class='btn ghost tiny' data-del-inc='" + esc(r.id) + "' aria-label='Delete incident'>Delete</button></td></tr>";
     }).join("");
@@ -256,6 +301,7 @@
       '<label>Type <select id="incType">' + typeOpts + "</select></label>" +
       '<label>Severity <select id="incSev"><option>Low</option><option>Medium</option><option>High</option></select></label>' +
       '<label class="full">Notes <input type="text" id="incNotes" placeholder="What happened? Where? Who was involved?" required></label>' +
+      '<label class="full">Photo evidence <input type="file" id="incPhoto" accept="image/*"></label>' +
       '<button class="btn full" type="submit">Log incident</button></form>' +
       '<div id="incErr" class="err" role="alert"></div>' +
       (log.length ? '<div class="row"><button id="expCsv" class="btn ghost">Export CSV</button></div>' +
@@ -387,35 +433,54 @@
         render();
       });
     });
-    var pc = document.getElementById("printCheck");
+    var attCsv = document.getElementById("attCsv");
+    if (attCsv) attCsv.addEventListener("click", function () {
+      var key = talkAttendKey(state.talk);
+      var list = SC.attendanceFor(SC.storageGet("attendance", []), key);
+      function q(v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; }
+      var lines = ["week_key,talk_title,name,signed_at"];
+      list.forEach(function (s) {
+        lines.push([q(key), q(state.talk.title), q(s.name), q(s.at)].join(","));
+      });
+      var blob = new Blob([lines.join("\n")], { type: "text/csv" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "toolbox-talk-attendance-" + key + ".csv";
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    });
     if (pc) pc.addEventListener("click", function () { window.print(); });
     var form = document.getElementById("incForm");
     if (form) form.addEventListener("submit", function (e) {
       e.preventDefault();
-      var log = SC.storageGet("incidents", []);
-      var res = SC.addIncident(log, {
+      var fields = {
         date: document.getElementById("incDate").value,
         type: document.getElementById("incType").value,
         severity: document.getElementById("incSev").value,
         notes: document.getElementById("incNotes").value
+      };
+      var file = document.getElementById("incPhoto").files[0];
+      readPhoto(file, function (photo) {
+        var log = SC.storageGet("incidents", []);
+        fields.photo = photo;
+        var res = SC.addIncident(log, fields);
+        if (!res.ok) { document.getElementById("incErr").textContent = res.errors.join("; "); return; }
+        SC.storageSet("incidents", res.log);
+        // High-severity incidents always get a follow-up: auto-create a linked
+        // corrective action due in 7 days so nothing falls through the cracks.
+        if (fields.severity === "High") {
+          var acts = SC.storageGet("actions", []);
+          var due = new Date(); due.setDate(due.getDate() + 7);
+          var ar = SC.addAction(acts, {
+            incidentId: res.incident.id,
+            text: "Investigate " + fields.type + " incident (" + fields.date + ")",
+            owner: "",
+            dueDate: SC.dateToStr(due)
+          });
+          if (ar.ok) SC.storageSet("actions", ar.actions);
+        }
+        render();
       });
-      if (!res.ok) { document.getElementById("incErr").textContent = res.errors.join("; "); return; }
-      SC.storageSet("incidents", res.log);
-      // High-severity incidents always get a follow-up: auto-create a linked
-      // corrective action due in 7 days so nothing falls through the cracks.
-      if (document.getElementById("incSev").value === "High") {
-        var acts = SC.storageGet("actions", []);
-        var due = new Date(); due.setDate(due.getDate() + 7);
-        var ar = SC.addAction(acts, {
-          incidentId: res.incident.id,
-          text: "Investigate " + document.getElementById("incType").value +
-            " incident (" + document.getElementById("incDate").value + ")",
-          owner: "",
-          dueDate: SC.dateToStr(due)
-        });
-        if (ar.ok) SC.storageSet("actions", ar.actions);
-      }
-      render();
     });
     var ex = document.getElementById("expCsv");
     if (ex) ex.addEventListener("click", function () {

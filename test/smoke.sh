@@ -185,9 +185,12 @@ const fs = require('fs');
 const appSrc = fs.readFileSync('js/app.js', 'utf8');
 (appSrc.indexOf('attAdd') > 0 && appSrc.indexOf('attendanceHTML') > 0) ? ok('attendance UI wired') : bad('attendance UI');
 (appSrc.indexOf('streakDays') > 0 && appSrc.indexOf('completionStreak') > 0) ? ok('streak UI wired') : bad('streak UI');
-(appSrc.indexOf('Investigate') > 0 && /incSev.{0,40}===\s*"High"/.test(appSrc)) ? ok('high-severity auto-action wired') : bad('auto-action UI');
+(appSrc.indexOf('Investigate') > 0 && /severity\s*===\s*"High"/.test(appSrc)) ? ok('high-severity auto-action wired') : bad('auto-action UI');
 const cssSrc = fs.readFileSync('css/style.css', 'utf8');
 (cssSrc.indexOf('streak-banner') > 0 && cssSrc.indexOf('attlist') > 0) ? ok('streak + attendance styles') : bad('styles');
+(cssSrc.indexOf('statusstrip') > 0 && appSrc.indexOf('renderSiteStatus') > 0) ? ok('site status strip') : bad('status strip');
+(appSrc.indexOf('incPhoto') > 0 && appSrc.indexOf('inc-thumb') > 0 && fs.readFileSync('js/logic.js', 'utf8').indexOf('photo: inc.photo') > 0) ? ok('incident photo evidence') : bad('photo evidence');
+(appSrc.indexOf('attCsv') > 0 && appSrc.indexOf('toolbox-talk-attendance') > 0) ? ok('attendance CSV export') : bad('attendance export');
 
 console.log('NODE_PASS=' + pass + ' NODE_FAIL=' + fail);
 process.exit(fail ? 1 : 0);
